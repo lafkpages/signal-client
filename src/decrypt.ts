@@ -71,9 +71,11 @@ export type ParsedEnvelope = {
 
 export function parseEnvelope(bytes: Uint8Array): ParsedEnvelope {
   const msg = Envelope.decode(bytes);
+  // NOTE: do NOT pass `bytes: Array` here — protobufjs interprets that as
+  // "return number[]", not Uint8Array. Omitting the option gives us a Node
+  // Buffer (which is a Uint8Array subclass) with a real `.byteLength`.
   const decoded = Envelope.toObject(msg, {
     longs: Number,
-    bytes: Array, // returns Uint8Array for `content`
     defaults: false,
   });
   // `longs: Number` coerces int64 fields to plain numbers despite the

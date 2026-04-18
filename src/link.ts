@@ -48,10 +48,12 @@ const STORE_DIR = "store";
 function decodeContent(plaintext: Uint8Array): IContent | null {
   try {
     // Pass through toObject to get real Uint8Array byte fields (not base64).
+    // NOTE: omit `bytes` option — the default returns Buffer/Uint8Array.
+    // `bytes: Array` would give us number[], which breaks downstream code
+    // that relies on `.byteLength` (e.g. attachment / blob handling).
     const msg = Content.decode(plaintext);
     return Content.toObject(msg, {
       longs: Number,
-      bytes: Array, // returns Uint8Array
       defaults: false,
     });
   } catch {
