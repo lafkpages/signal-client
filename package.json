@@ -1,0 +1,28 @@
+{
+  "name": "@luisafk/libsignal-test",
+  "version": "0.0.1",
+  "module": "src/link.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/link.ts",
+    "fetch-protos": "bun run scripts/fetch-protos.ts",
+    "postinstall": "bun run fetch-protos"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/qrcode-terminal": "^0.12.2",
+    "protobufjs-cli": "^2.0.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@signalapp/libsignal-client": "^0.92.2",
+    "protobufjs": "^8.0.1",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "trustedDependencies": [
+    "@signalapp/libsignal-client"
+  ]
+}
