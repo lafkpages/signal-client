@@ -3,16 +3,16 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@luisafk/libsignal-test",
+      "name": "@luisafk/signal-client",
       "dependencies": {
         "@signalapp/libsignal-client": "^0.92.2",
         "protobufjs": "^8.0.1",
-        "qrcode-terminal": "^0.12.0",
       },
       "devDependencies": {
         "@types/bun": "latest",
         "@types/qrcode-terminal": "^0.12.2",
         "protobufjs-cli": "^2.0.1",
+        "qrcode-terminal": "^0.12.0",
       },
       "peerDependencies": {
         "typescript": "^5",

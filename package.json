@@ -1,5 +1,5 @@
 {
-  "name": "@luisafk/libsignal-test",
+  "name": "@luisafk/signal-client",
   "version": "0.0.1",
   "module": "src/client.ts",
   "type": "module",

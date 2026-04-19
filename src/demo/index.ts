@@ -22,8 +22,8 @@ import {
   type IContent,
 } from "../protos.ts";
 
-const USER_AGENT = `@luisafk/libsignal-test/${version}`;
-const DEVICE_NAME = `@luisafk/libsignal-test`;
+const USER_AGENT = `@luisafk/signal-client/${version}`;
+const DEVICE_NAME = `@luisafk/signal-client`;
 const STATE_FILE = "state.json";
 const STORE_DIR = "store";
 

@@ -7,10 +7,15 @@
 // reproducible builds; bump the SHAs manually when you want to track
 // upstream changes.
 
-import { spawnSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { $ } from "bun";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+
+// See https://u.luisafk.dev/kFAde
+$.throws(true).env({
+  ...process.env,
+  FORCE_COLOR: Bun.enableANSIColors ? "1" : undefined,
+});
 
 type ProtoSource = {
   name: string;
@@ -42,23 +47,24 @@ const SOURCES: ProtoSource[] = [
   },
 ];
 
-const here = dirname(fileURLToPath(import.meta.url));
-const outDir = join(here, "..", "protos");
+const outDir = new URL("../protos", import.meta.url).pathname;
 await mkdir(outDir, { recursive: true });
 
 for (const src of SOURCES) {
   const url = `https://raw.githubusercontent.com/${src.repo}/${src.ref}/${src.path}`;
+
   process.stdout.write(
     `Fetching ${src.name} from ${src.repo}@${src.ref.slice(0, 7)}... `,
   );
+
   const res = await fetch(url);
   if (!res.ok) {
     console.error(`FAILED: ${res.status} ${res.statusText} (${url})`);
     process.exit(1);
   }
-  const body = await res.text();
-  await writeFile(join(outDir, src.name), body);
-  console.log(`${body.length} bytes`);
+
+  await Bun.write(join(outDir, src.name), res);
+  console.log(`${res.headers.get("content-length") ?? "unknown"} bytes`);
 }
 
 console.log(`\nWrote ${SOURCES.length} protos to ${outDir}`);
@@ -72,25 +78,7 @@ const protoFiles = SOURCES.map((s) => join(outDir, s.name));
 const generatedJs = join(outDir, "generated.js");
 const generatedDts = join(outDir, "generated.d.ts");
 
-function runCli(bin: string, args: string[]): void {
-  process.stdout.write(`Running ${bin} ${args.join(" ")}\n`);
-  const result = spawnSync("bunx", [bin, ...args], { stdio: "inherit" });
-  if (result.status !== 0) {
-    console.error(`${bin} failed with exit code ${result.status}`);
-    process.exit(result.status ?? 1);
-  }
-}
-
-runCli("pbjs", [
-  "--target",
-  "static-module",
-  "--wrap",
-  "es6",
-  "--keep-case",
-  "--out",
-  generatedJs,
-  ...protoFiles,
-]);
-runCli("pbts", ["--out", generatedDts, generatedJs]);
+await $`bun run -b pbjs --target static-module --wrap es6 --keep-case --out ${generatedJs} ${protoFiles}`;
+await $`bun run pbts --out ${generatedDts} ${generatedJs}`;
 
 console.log(`\nGenerated ${generatedDts}`);
