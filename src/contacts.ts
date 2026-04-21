@@ -10,21 +10,19 @@
 
 import { ContactDetails } from "./protos.ts";
 
-export type ParsedContact = {
-  aci?: string | undefined;
-  aciBinary?: Uint8Array | undefined;
-  number?: string | undefined;
-  name?: string | undefined;
-  expireTimer?: number | undefined;
-  expireTimerVersion?: number | undefined;
-  inboxPosition?: number | undefined;
-  avatar?:
-    | {
-        contentType?: string | undefined;
-        bytes: Uint8Array;
-      }
-    | undefined;
-};
+export interface ParsedContact {
+  aci: string | null;
+  aciBinary: Uint8Array | null;
+  number: string | null;
+  name: string | null;
+  expireTimer: number | null;
+  expireTimerVersion: number | null;
+  inboxPosition: number | null;
+  avatar: {
+    contentType?: string | null;
+    bytes: Uint8Array;
+  } | null;
+}
 
 function readVarint(buf: Uint8Array, offset: number): [number, number] {
   // JS bitwise ops are signed 32-bit and shift counts are mod 32, so we
@@ -77,20 +75,29 @@ export function parseContactDetailsStream(bytes: Uint8Array): ParsedContact[] {
       pos += avatarLen;
     }
 
+    // protobuf.js decodes unset proto2 `optional string` fields as "" rather
+    // than leaving them undefined, and unset `bytes` fields as zero-length
+    // buffers. Normalise both so callers can rely on `??` falling through.
+    const aci = decoded.aci || null;
+    const aciBinary =
+      decoded.aciBinary && decoded.aciBinary.length > 0
+        ? decoded.aciBinary
+        : null;
+
     out.push({
-      aci: decoded.aci ?? undefined,
-      aciBinary: decoded.aciBinary ?? undefined,
-      number: decoded.number ?? undefined,
-      name: decoded.name ?? undefined,
-      expireTimer: decoded.expireTimer ?? undefined,
-      expireTimerVersion: decoded.expireTimerVersion ?? undefined,
-      inboxPosition: decoded.inboxPosition ?? undefined,
+      aci,
+      aciBinary,
+      number: decoded.number || null,
+      name: decoded.name || null,
+      expireTimer: decoded.expireTimer ?? null,
+      expireTimerVersion: decoded.expireTimerVersion ?? null,
+      inboxPosition: decoded.inboxPosition ?? null,
       avatar: avatarBytes
         ? {
-            contentType: decoded.avatar?.contentType ?? undefined,
+            contentType: decoded.avatar?.contentType || null,
             bytes: avatarBytes,
           }
-        : undefined,
+        : null,
     });
   }
   return out;

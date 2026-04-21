@@ -31,6 +31,15 @@ function fmtTimestamp(ts: unknown): string {
   return new Date(ts).toISOString();
 }
 
+function formatAciBinary(bin: Uint8Array | null): string | null {
+  if (!bin || bin.length !== 16) {
+    return null;
+  }
+
+  const hex = Array.from(bin, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function describeDataMessage(dm: NonNullable<IContent["dataMessage"]>): string {
   const parts: string[] = [];
   if (typeof dm.body === "string")
@@ -128,14 +137,18 @@ async function handleContactsSync(
     console.log("SyncMessage.Contacts: empty pointer; nothing to download.");
     return;
   }
+
   console.log(
     `SyncMessage.Contacts: downloading attachment (cdn=${ptr.cdnNumber ?? 0}, size=${ptr.size ?? "?"}, complete=${complete})...`,
   );
+
   const plaintext = await fetchAndDecryptAttachment(ptr, USER_AGENT);
   const contacts = parseContactDetailsStream(plaintext);
-  console.log(`SyncMessage.Contacts: parsed ${contacts.length} contacts:`);
+
+  console.log("SyncMessage.Contacts: parsed", contacts.length, "contacts:");
+
   for (const c of contacts) {
-    const id = c.aci ?? c.number ?? "(unknown)";
+    const id = c.aci ?? formatAciBinary(c.aciBinary) ?? c.number ?? "(unknown)";
     const name = c.name ? ` "${c.name}"` : "";
     const avatar = c.avatar ? ` +avatar(${c.avatar.bytes.length}B)` : "";
     console.log(`  - ${id}${name}${avatar}`);
