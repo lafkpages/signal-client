@@ -28,5 +28,6 @@ dist
 /state.json
 /store/
 
-# Fetched upstream proto schemas (run `bun run fetch-protos` to populate)
-/protos/
+# Generated
+/protos
+/src/signalCa.ts

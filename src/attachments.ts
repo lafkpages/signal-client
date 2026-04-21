@@ -25,6 +25,8 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 
+import { SIGNAL_CA_PEM } from "./signalCa.ts";
+
 // Structural superset of generated `signalservice.IAttachmentPointer` — accepts
 // the same nullable fields plus a few extra shapes for cdnId (Long, bigint,
 // string) that pop up depending on how the proto was decoded.
@@ -70,10 +72,13 @@ export async function downloadAttachment(
   const res = await fetch(url, {
     method: "GET",
     headers: { "User-Agent": userAgent },
+    tls: { ca: SIGNAL_CA_PEM },
   });
+
   if (!res.ok) {
     throw new Error(`Attachment GET ${url} failed: ${res.status}`);
   }
+
   return new Uint8Array(await res.arrayBuffer());
 }
 

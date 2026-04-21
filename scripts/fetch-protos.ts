@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+
 // Downloads the Signal protobuf schemas this project depends on and
 // generates TypeScript declarations for them via pbjs + pbts.
 //
