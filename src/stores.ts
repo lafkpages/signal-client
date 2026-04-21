@@ -23,10 +23,13 @@ import {
   PrivateKey,
   ProtocolAddress,
   PublicKey,
+  SenderKeyRecord,
+  SenderKeyStore,
   SessionRecord,
   SessionStore,
   SignedPreKeyRecord,
   SignedPreKeyStore,
+  type Uuid,
 } from "@signalapp/libsignal-client";
 
 function key(addr: ProtocolAddress): string {
@@ -299,12 +302,44 @@ export class InMemoryKyberPreKeyStore extends KyberPreKeyStore {
   }
 }
 
+export class InMemorySenderKeyStore extends SenderKeyStore {
+  private readonly keys: PersistedBytesMap;
+
+  constructor(path?: string) {
+    super();
+    this.keys = new PersistedBytesMap(path);
+  }
+
+  // Key format: `${sender.name()}.${sender.deviceId()}|${distributionId}`
+  // distributionId is already a UUID string from libsignal.
+  private k(sender: ProtocolAddress, distributionId: Uuid): string {
+    return `${key(sender)}|${distributionId}`;
+  }
+
+  async saveSenderKey(
+    sender: ProtocolAddress,
+    distributionId: Uuid,
+    record: SenderKeyRecord,
+  ): Promise<void> {
+    this.keys.set(this.k(sender, distributionId), record.serialize());
+  }
+
+  async getSenderKey(
+    sender: ProtocolAddress,
+    distributionId: Uuid,
+  ): Promise<SenderKeyRecord | null> {
+    const raw = this.keys.get(this.k(sender, distributionId));
+    return raw ? SenderKeyRecord.deserialize(Buffer.from(raw)) : null;
+  }
+}
+
 export type ProtocolStores = {
   session: InMemorySessionStore;
   identity: InMemoryIdentityKeyStore;
   preKey: InMemoryPreKeyStore;
   signedPreKey: InMemorySignedPreKeyStore;
   kyberPreKey: InMemoryKyberPreKeyStore;
+  senderKey: InMemorySenderKeyStore;
 };
 
 function storePaths(dir: string): {
@@ -313,6 +348,7 @@ function storePaths(dir: string): {
   preKeys: string;
   signedPreKeys: string;
   kyberPreKeys: string;
+  senderKeys: string;
 } {
   return {
     sessions: join(dir, "sessions.json"),
@@ -320,6 +356,7 @@ function storePaths(dir: string): {
     preKeys: join(dir, "preKeys.json"),
     signedPreKeys: join(dir, "signedPreKeys.json"),
     kyberPreKeys: join(dir, "kyberPreKeys.json"),
+    senderKeys: join(dir, "senderKeys.json"),
   };
 }
 
@@ -339,5 +376,6 @@ export function createStores(
     preKey: new InMemoryPreKeyStore(p?.preKeys),
     signedPreKey: new InMemorySignedPreKeyStore(p?.signedPreKeys),
     kyberPreKey: new InMemoryKyberPreKeyStore(p?.kyberPreKeys),
+    senderKey: new InMemorySenderKeyStore(p?.senderKeys),
   };
 }

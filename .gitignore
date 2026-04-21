@@ -30,4 +30,4 @@ dist
 
 # Generated
 /protos
-/src/signalCa.ts
+/src/config/*.json

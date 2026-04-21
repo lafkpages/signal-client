@@ -1,39 +1,36 @@
 // Incoming envelope decryption.
 //
 // Dispatches on `Envelope.type`:
-//   - DOUBLE_RATCHET (1)      -> signalDecrypt
-//   - PREKEY_MESSAGE (3)      -> signalDecryptPreKey
+//   - DOUBLE_RATCHET (1)          -> signalDecrypt
+//   - PREKEY_MESSAGE (3)          -> signalDecryptPreKey
 //   - SERVER_DELIVERY_RECEIPT (5) -> no content; returns null
-//   - UNIDENTIFIED_SENDER (6) -> sealedSenderDecryptMessage
-//   - PLAINTEXT_CONTENT (8)   -> PlaintextContent.deserialize; inner Content
-//                                must contain only `decryptionErrorMessage`
-//                                (Signal spec: plaintext envelopes never
-//                                carry "real" message content).
+//   - UNIDENTIFIED_SENDER (6)     -> sealedSenderDecryptMessage
+//   - PLAINTEXT_CONTENT (8)       -> PlaintextContent.deserialize; inner Content
+//                                    must contain only `decryptionErrorMessage`
+//                                    (Signal spec: plaintext envelopes never
+//                                    carry "real" message content).
 //
 // The returned plaintext is the inner `Content` proto bytes with the trailing
 // `0x80 00...00` padding stripped.
 
 import {
+  CiphertextMessageType,
+  groupDecrypt,
   PlaintextContent,
   PreKeySignalMessage,
+  processSenderKeyDistributionMessage,
   ProtocolAddress,
   PublicKey,
-  sealedSenderDecryptMessage,
+  sealedSenderDecryptToUsmc,
+  SenderKeyDistributionMessage,
   signalDecrypt,
   signalDecryptPreKey,
   SignalMessage,
 } from "@signalapp/libsignal-client";
 
+import { SIGNAL_UD_TRUST_ROOTS_B64 } from "./config/index.ts";
 import { Content, Envelope, EnvelopeType } from "./protos.ts";
 import type { ProtocolStores } from "./stores.ts";
-
-// Signal production "unidentified delivery" trust roots, as used by
-// Signal-Desktop config/production.json -> serverTrustRoots. Multiple roots
-// are published; any may sign a sealed-sender certificate, so we try each.
-const UD_TRUST_ROOTS_B64 = [
-  "BXu6QIKVz5MA8gstzfOgRQGqyLqOwNKHL6INkv3IHWMF",
-  "BUkY0I+9+oPgDCn4+Ac6Iu813yvqkDr/ga8DzLxFxuk6",
-];
 
 function toArrayBufferUint8(src: Uint8Array): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(src.byteLength);
@@ -44,7 +41,7 @@ function toArrayBufferUint8(src: Uint8Array): Uint8Array<ArrayBuffer> {
 let _trustRoots: PublicKey[] | undefined;
 function trustRoots(): PublicKey[] {
   if (!_trustRoots) {
-    _trustRoots = UD_TRUST_ROOTS_B64.map((b64) =>
+    _trustRoots = SIGNAL_UD_TRUST_ROOTS_B64.map((b64) =>
       PublicKey.deserialize(toArrayBufferUint8(Buffer.from(b64, "base64"))),
     );
   }
@@ -212,21 +209,56 @@ export async function decryptEnvelope(
       if (!content) {
         throw new Error("UNIDENTIFIED_SENDER envelope has no body");
       }
-      // Try each published trust root; Signal currently rotates between two.
-      const roots = trustRoots();
-      let result: Awaited<
-        ReturnType<typeof sealedSenderDecryptMessage>
-      > | null = null;
-      let lastErr: unknown;
-      for (const root of roots) {
-        try {
-          result = await sealedSenderDecryptMessage(
-            content,
-            root,
-            envelope.timestamp,
-            /* localE164 */ null,
-            localAci,
-            localDeviceId,
+      // Step 1: unseal to USMC (decrypts outer sealed-sender layer only).
+      // This does NOT validate the certificate against the server trust
+      // root — we must do that ourselves — and it returns a
+      // UnidentifiedSenderMessageContent from which we dispatch on
+      // msgType() for the inner ciphertext.
+      const usmc = await sealedSenderDecryptToUsmc(content, stores.identity);
+      const certificate = usmc.senderCertificate();
+
+      // Step 2: validate the sender certificate against published trust
+      // roots at the envelope's server timestamp. Signal currently rotates
+      // between two roots; accept either.
+      if (
+        !certificate.validateWithTrustRoots(trustRoots(), envelope.timestamp)
+      ) {
+        throw new Error("Sealed sender certificate validation failed");
+      }
+
+      const senderUuid = certificate.senderUuid();
+      const senderDeviceId = certificate.senderDeviceId();
+      if (senderUuid === localAci && senderDeviceId === localDeviceId) {
+        throw new Error("Sealed sender message sent by this device");
+      }
+
+      const senderAddress = ProtocolAddress.new(senderUuid, senderDeviceId);
+      const innerType = usmc.msgType();
+      const innerBytes = usmc.contents();
+
+      // Step 3: dispatch on inner ciphertext type. `sealedSenderDecryptMessage`
+      // (which this replaces) only handles Whisper / PreKey; SenderKey
+      // (group) ciphertexts produced by `groupEncrypt` must go through
+      // `groupDecrypt`, and Plaintext inner contents wrap a PlaintextContent.
+      let padded: Uint8Array;
+      let wasEncrypted = true;
+      switch (innerType) {
+        case CiphertextMessageType.Whisper: {
+          const msg = SignalMessage.deserialize(innerBytes);
+          padded = await signalDecrypt(
+            msg,
+            senderAddress,
+            stores.session,
+            stores.identity,
+          );
+          break;
+        }
+        case CiphertextMessageType.PreKey: {
+          const msg = PreKeySignalMessage.deserialize(innerBytes);
+          padded = await signalDecryptPreKey(
+            msg,
+            senderAddress,
+            ProtocolAddress.new(localAci, localDeviceId),
             stores.session,
             stores.identity,
             stores.preKey,
@@ -234,21 +266,67 @@ export async function decryptEnvelope(
             stores.kyberPreKey,
           );
           break;
-        } catch (e) {
-          lastErr = e;
-          // Only retry on trust-root validation failure; other errors are fatal.
-          const msg = e instanceof Error ? e.message : String(e);
-          if (!msg.includes("trust root")) throw e;
+        }
+        case CiphertextMessageType.SenderKey: {
+          padded = await groupDecrypt(
+            senderAddress,
+            stores.senderKey,
+            toArrayBufferUint8(innerBytes),
+          );
+          break;
+        }
+        case CiphertextMessageType.Plaintext: {
+          // Per Signal protocol the sealed-sender plaintext path carries a
+          // PlaintextContent (same shape as the PLAINTEXT_CONTENT envelope
+          // type). It's unauthenticated at the protocol layer but the
+          // sender certificate we just validated still binds the envelope
+          // to the claimed sender — so the strictness here can be lighter
+          // than the outer PLAINTEXT_CONTENT branch.
+          const msg = PlaintextContent.deserialize(innerBytes);
+          padded = msg.body();
+          wasEncrypted = false;
+          break;
+        }
+        default:
+          throw new Error(
+            `Unsupported sealed sender inner msgType: ${innerType}`,
+          );
+      }
+
+      const plaintext = unpad(padded);
+
+      // Step 4: eagerly process any SenderKeyDistributionMessage carried
+      // in the decrypted Content so that the *next* group message from
+      // this sender+distribution can be decrypted via groupDecrypt. This
+      // must happen inside decrypt: subsequent incoming envelopes may
+      // arrive before the caller gets a chance to process events.
+      if (wasEncrypted) {
+        try {
+          const decoded = Content.decode(plaintext);
+          const skdmBytes = decoded.senderKeyDistributionMessage;
+          if (skdmBytes && skdmBytes.length > 0) {
+            const skdm = SenderKeyDistributionMessage.deserialize(
+              toArrayBufferUint8(skdmBytes),
+            );
+            await processSenderKeyDistributionMessage(
+              senderAddress,
+              skdm,
+              stores.senderKey,
+            );
+          }
+        } catch {
+          // SKDM processing is best-effort; failures here shouldn't drop
+          // the surrounding message.
         }
       }
-      if (!result) throw lastErr ?? new Error("sealed sender decrypt failed");
+
       return {
         envelope,
-        plaintext: unpad(result.message()),
-        wasEncrypted: true,
+        plaintext,
+        wasEncrypted,
         sealedSender: {
-          senderUuid: result.senderUuid(),
-          senderDeviceId: result.deviceId(),
+          senderUuid,
+          senderDeviceId,
         },
       };
     }

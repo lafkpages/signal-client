@@ -6,9 +6,9 @@
   "private": true,
   "scripts": {
     "start": "bun run src/demo/index.ts",
-    "fetch-ca": "bun run scripts/fetch-ca.ts",
+    "fetch-config": "bun run scripts/fetch-config.ts",
     "fetch-protos": "bun run scripts/fetch-protos.ts",
-    "postinstall": "bun run fetch-ca && bun run fetch-protos"
+    "postinstall": "bun run fetch-config && bun run fetch-protos"
   },
   "devDependencies": {
     "@types/bun": "latest",
