@@ -67,6 +67,16 @@ class PersistedBytesMap {
     this.flush();
   }
 
+  /** Returns the largest numeric-looking key, or 0 if none. */
+  maxNumericKey(): number {
+    let max = 0;
+    for (const k of this.data.keys()) {
+      const n = Number(k);
+      if (Number.isInteger(n) && n > max) max = n;
+    }
+    return max;
+  }
+
   private flush(): void {
     if (!this.path) return;
     const obj: Record<string, string> = {};
@@ -193,6 +203,10 @@ export class InMemoryPreKeyStore extends PreKeyStore {
     const record = PreKeyRecord.new(id, priv.getPublicKey(), priv);
     this.keys.set(String(id), record.serialize());
   }
+
+  maxKeyId(): number {
+    return this.keys.maxNumericKey();
+  }
 }
 
 export class InMemorySignedPreKeyStore extends SignedPreKeyStore {
@@ -230,6 +244,10 @@ export class InMemorySignedPreKeyStore extends SignedPreKeyStore {
       new Uint8Array(signature),
     );
     this.keys.set(String(id), record.serialize());
+  }
+
+  maxKeyId(): number {
+    return this.keys.maxNumericKey();
   }
 }
 
@@ -274,6 +292,10 @@ export class InMemoryKyberPreKeyStore extends KyberPreKeyStore {
       new Uint8Array(signature),
     );
     this.keys.set(String(id), record.serialize());
+  }
+
+  maxKeyId(): number {
+    return this.keys.maxNumericKey();
   }
 }
 

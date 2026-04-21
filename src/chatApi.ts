@@ -1,6 +1,7 @@
 import { KEMKeyPair, Net, PrivateKey } from "@signalapp/libsignal-client";
 import { randomBytes } from "node:crypto";
 import type { KeyPair } from "./provisioningCipher.ts";
+import { wrappingAdd24Nonzero } from "./state.ts";
 
 export type SignedPreKeyJson = {
   keyId: number;
@@ -48,15 +49,6 @@ function randomRegistrationId(): number {
 
 export { randomRegistrationId };
 
-function randomKeyId(): number {
-  // Signal uses 24-bit key IDs (positive, non-zero).
-  let id = 0;
-  while (id === 0) {
-    id = randomBytes(3).readUIntBE(0, 3);
-  }
-  return id;
-}
-
 export function generateAccountPassword(): string {
   // Matches Signal-Desktop: 16 random bytes -> base64 -> drop trailing 2 chars
   return Buffer.from(randomBytes(16)).toString("base64").slice(0, -2);
@@ -73,17 +65,21 @@ export type GeneratedPreKeys = {
 
 /**
  * Generates a signed EC pre-key and a Kyber last-resort pre-key, both signed
- * with `identityKeyPair.privateKey`.
+ * with `identityKeyPair.privateKey`. Callers must allocate the key ids
+ * themselves (e.g. via the monotonic counters in {@link KeyIdCounters}) so
+ * that ids never collide with existing entries in the protocol stores.
  */
-export function generatePreKeys(identityKeyPair: KeyPair): GeneratedPreKeys {
-  const signedPreKeyId = randomKeyId();
+export function generatePreKeys(
+  identityKeyPair: KeyPair,
+  ids: { signedPreKeyId: number; pqLastResortPreKeyId: number },
+): GeneratedPreKeys {
+  const { signedPreKeyId, pqLastResortPreKeyId } = ids;
   const signedPreKeyPrivate = PrivateKey.generate();
   const signedPreKeyPublic = signedPreKeyPrivate.getPublicKey();
   const signedPreKeySignature = identityKeyPair.privateKey.sign(
     signedPreKeyPublic.serialize(),
   );
 
-  const pqLastResortPreKeyId = randomKeyId();
   const pqKeyPair = KEMKeyPair.generate();
   const pqPub = pqKeyPair.getPublicKey().serialize();
   const pqSignature = identityKeyPair.privateKey.sign(pqPub);
@@ -205,10 +201,12 @@ export type GeneratedOneTimeKeys = {
 
 /**
  * Generates `count` one-time EC pre-keys and `count` one-time Kyber pre-keys.
- * Signal-Desktop uploads batches of 100.
+ * Signal-Desktop uploads batches of 100. Both id ranges are allocated
+ * consecutively starting at the provided start ids.
  */
 export function generateOneTimePreKeys(
   identityKeyPair: KeyPair,
+  ids: { startPreKeyId: number; startKyberPreKeyId: number },
   count = 100,
 ): GeneratedOneTimeKeys {
   const preKeys: OneTimePreKeyJson[] = [];
@@ -217,14 +215,14 @@ export function generateOneTimePreKeys(
   const pqPreKeyPrivates: GeneratedOneTimeKeys["pqPreKeyPrivates"] = [];
 
   for (let i = 0; i < count; i++) {
-    const keyId = randomKeyId();
+    const keyId = wrappingAdd24Nonzero(ids.startPreKeyId, i);
     const priv = PrivateKey.generate();
     preKeys.push({ keyId, publicKey: b64(priv.getPublicKey().serialize()) });
     preKeyPrivates.push({ keyId, privateKey: priv });
   }
 
   for (let i = 0; i < count; i++) {
-    const keyId = randomKeyId();
+    const keyId = wrappingAdd24Nonzero(ids.startKyberPreKeyId, i);
     const kp = KEMKeyPair.generate();
     const pub = kp.getPublicKey().serialize();
     const sig = identityKeyPair.privateKey.sign(pub);

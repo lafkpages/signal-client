@@ -21,7 +21,10 @@ import {
   b64,
   loadPrivateKey,
   loadState,
+  randomInitialKeyId,
   saveState,
+  wrappingAdd24Nonzero,
+  type KeyIdCounters,
   type LinkedState,
 } from "./state.ts";
 import { createStores, type ProtocolStores } from "./stores.ts";
@@ -201,6 +204,27 @@ export class SignalClient {
         this.state.registrationId,
         config.storeDir,
       );
+      // State files written before key-id counters were introduced won't
+      // have `keyIds`. Seed the counters from what's already in the store
+      // (ACI side) / random (PNI side) so future key generations can't
+      // collide with existing entries, and persist immediately.
+      if (!this.state.keyIds) {
+        this.state.keyIds = {
+          preKeyIdAci: wrappingAdd24Nonzero(this.stores.preKey.maxKeyId(), 1),
+          signedPreKeyIdAci: wrappingAdd24Nonzero(
+            this.stores.signedPreKey.maxKeyId(),
+            1,
+          ),
+          kyberPreKeyIdAci: wrappingAdd24Nonzero(
+            this.stores.kyberPreKey.maxKeyId(),
+            1,
+          ),
+          preKeyIdPni: randomInitialKeyId(),
+          signedPreKeyIdPni: randomInitialKeyId(),
+          kyberPreKeyIdPni: randomInitialKeyId(),
+        };
+        saveState(config.stateFile, this.state);
+      }
     }
   }
 
@@ -287,8 +311,38 @@ export class SignalClient {
     const registrationId = randomRegistrationId();
     const pniRegistrationId = randomRegistrationId();
 
-    const aciKeys = generatePreKeys(msg.aciKeyPair);
-    const pniKeys = generatePreKeys(msg.pniKeyPair);
+    // Initialize monotonic key-id counters (Signal-Desktop style). Each
+    // identity × key-kind gets its own 24-bit counter; on first use the
+    // starting id is random, and every subsequent allocation increments it
+    // via `wrappingAdd24`. This replaces the per-key random id generation
+    // that could otherwise collide with existing entries in our stores.
+    const keyIds: KeyIdCounters = {
+      preKeyIdAci: randomInitialKeyId(),
+      preKeyIdPni: randomInitialKeyId(),
+      signedPreKeyIdAci: randomInitialKeyId(),
+      signedPreKeyIdPni: randomInitialKeyId(),
+      kyberPreKeyIdAci: randomInitialKeyId(),
+      kyberPreKeyIdPni: randomInitialKeyId(),
+    };
+
+    const aciSignedPreKeyId = keyIds.signedPreKeyIdAci;
+    keyIds.signedPreKeyIdAci = wrappingAdd24Nonzero(aciSignedPreKeyId, 1);
+    const pniSignedPreKeyId = keyIds.signedPreKeyIdPni;
+    keyIds.signedPreKeyIdPni = wrappingAdd24Nonzero(pniSignedPreKeyId, 1);
+
+    const aciPqLastResortPreKeyId = keyIds.kyberPreKeyIdAci;
+    keyIds.kyberPreKeyIdAci = wrappingAdd24Nonzero(aciPqLastResortPreKeyId, 1);
+    const pniPqLastResortPreKeyId = keyIds.kyberPreKeyIdPni;
+    keyIds.kyberPreKeyIdPni = wrappingAdd24Nonzero(pniPqLastResortPreKeyId, 1);
+
+    const aciKeys = generatePreKeys(msg.aciKeyPair, {
+      signedPreKeyId: aciSignedPreKeyId,
+      pqLastResortPreKeyId: aciPqLastResortPreKeyId,
+    });
+    const pniKeys = generatePreKeys(msg.pniKeyPair, {
+      signedPreKeyId: pniSignedPreKeyId,
+      pqLastResortPreKeyId: pniPqLastResortPreKeyId,
+    });
 
     const encryptedName = encryptDeviceName(
       this.config.deviceName,
@@ -339,8 +393,42 @@ export class SignalClient {
     );
 
     const count = opts.oneTimePreKeyCount ?? 100;
-    const aciOneTime = generateOneTimePreKeys(msg.aciKeyPair, count);
-    const pniOneTime = generateOneTimePreKeys(msg.pniKeyPair, count);
+
+    const aciOneTimeStart = {
+      startPreKeyId: keyIds.preKeyIdAci,
+      startKyberPreKeyId: keyIds.kyberPreKeyIdAci,
+    };
+    keyIds.preKeyIdAci = wrappingAdd24Nonzero(
+      aciOneTimeStart.startPreKeyId,
+      count,
+    );
+    keyIds.kyberPreKeyIdAci = wrappingAdd24Nonzero(
+      aciOneTimeStart.startKyberPreKeyId,
+      count,
+    );
+    const pniOneTimeStart = {
+      startPreKeyId: keyIds.preKeyIdPni,
+      startKyberPreKeyId: keyIds.kyberPreKeyIdPni,
+    };
+    keyIds.preKeyIdPni = wrappingAdd24Nonzero(
+      pniOneTimeStart.startPreKeyId,
+      count,
+    );
+    keyIds.kyberPreKeyIdPni = wrappingAdd24Nonzero(
+      pniOneTimeStart.startKyberPreKeyId,
+      count,
+    );
+
+    const aciOneTime = generateOneTimePreKeys(
+      msg.aciKeyPair,
+      aciOneTimeStart,
+      count,
+    );
+    const pniOneTime = generateOneTimePreKeys(
+      msg.pniKeyPair,
+      pniOneTimeStart,
+      count,
+    );
 
     for (const k of aciOneTime.preKeyPrivates) {
       stores.preKey.add(k.keyId, k.privateKey);
@@ -402,6 +490,8 @@ export class SignalClient {
       mediaRootBackupKey: msg.mediaRootBackupKey
         ? b64(msg.mediaRootBackupKey)
         : undefined,
+
+      keyIds,
     };
     saveState(this.config.stateFile, state);
 
