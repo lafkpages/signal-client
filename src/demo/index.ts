@@ -8,19 +8,16 @@
 //
 // Once connected we print incoming envelopes (decrypted) in a human-readable
 // form and download any SyncMessage.Contacts attachment we receive.
+import type { IncomingMessage } from "../client.ts";
+import type { IAttachmentPointer, IContent } from "../protos.ts";
 
 import qrcode from "qrcode-terminal";
 
 import { version } from "../../package.json";
 import { fetchAndDecryptAttachment } from "../attachments.ts";
-import { SignalClient, type IncomingMessage } from "../client.ts";
+import { SignalClient } from "../client.ts";
 import { parseContactDetailsStream } from "../contacts.ts";
-import {
-  EnvelopeType,
-  ReceiptType,
-  type IAttachmentPointer,
-  type IContent,
-} from "../protos.ts";
+import { EnvelopeType, ReceiptType } from "../protos.ts";
 
 const USER_AGENT = `@luisafk/signal-client/${version}`;
 const DEVICE_NAME = `@luisafk/signal-client`;

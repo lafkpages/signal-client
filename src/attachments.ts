@@ -24,6 +24,7 @@ import {
   createHmac,
   timingSafeEqual,
 } from "node:crypto";
+
 import { SIGNAL_CA_PEM } from "./config";
 
 // Structural superset of generated `signalservice.IAttachmentPointer` — accepts

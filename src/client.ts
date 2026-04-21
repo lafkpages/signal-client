@@ -1,3 +1,9 @@
+import type { LinkDeviceRequest } from "./chatApi.ts";
+import type { IContent } from "./protos.ts";
+import type { ProvisionDecryptResult } from "./provisioningCipher.ts";
+import type { KeyIdCounters, LinkedState } from "./state.ts";
+import type { ProtocolStores } from "./stores.ts";
+
 import { Net } from "@signalapp/libsignal-client";
 
 import {
@@ -8,15 +14,11 @@ import {
   linkDevice,
   randomRegistrationId,
   registerOneTimeKeys,
-  type LinkDeviceRequest,
 } from "./chatApi.ts";
 import { decryptEnvelope, parseEnvelope } from "./decrypt.ts";
 import { encryptDeviceName } from "./deviceName.ts";
-import { Content, type IContent } from "./protos.ts";
-import {
-  ProvisioningCipher,
-  type ProvisionDecryptResult,
-} from "./provisioningCipher.ts";
+import { Content } from "./protos.ts";
+import { ProvisioningCipher } from "./provisioningCipher.ts";
 import {
   b64,
   loadPrivateKey,
@@ -24,10 +26,8 @@ import {
   randomInitialKeyId,
   saveState,
   wrappingAdd24Nonzero,
-  type KeyIdCounters,
-  type LinkedState,
 } from "./state.ts";
-import { createStores, type ProtocolStores } from "./stores.ts";
+import { createStores } from "./stores.ts";
 import { sendSyncRequests } from "./sync.ts";
 
 // ---------- Public types ----------

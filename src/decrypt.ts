@@ -13,6 +13,8 @@
 // The returned plaintext is the inner `Content` proto bytes with the trailing
 // `0x80 00...00` padding stripped.
 
+import type { ProtocolStores } from "./stores.ts";
+
 import {
   CiphertextMessageType,
   groupDecrypt,
@@ -30,7 +32,6 @@ import {
 
 import { SIGNAL_UD_TRUST_ROOTS_B64 } from "./config/index.ts";
 import { Content, Envelope, EnvelopeType } from "./protos.ts";
-import type { ProtocolStores } from "./stores.ts";
 
 function toArrayBufferUint8(src: Uint8Array): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(src.byteLength);

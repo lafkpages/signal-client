@@ -1,6 +1,7 @@
 // libsignal-client store implementations with optional file-backed
 // persistence. Pass a directory path to `createStores` to enable durability:
 // every mutation writes the affected map to its JSON file atomically.
+import type { Uuid } from "@signalapp/libsignal-client";
 
 import {
   existsSync,
@@ -29,7 +30,6 @@ import {
   SessionStore,
   SignedPreKeyRecord,
   SignedPreKeyStore,
-  type Uuid,
 } from "@signalapp/libsignal-client";
 
 function key(addr: ProtocolAddress): string {

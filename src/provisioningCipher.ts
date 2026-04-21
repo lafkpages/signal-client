@@ -1,16 +1,15 @@
-import { PrivateKey, PublicKey } from "@signalapp/libsignal-client";
+import type { IProvisionEnvelope, IProvisionMessage } from "./protos.ts";
+
 import {
   createDecipheriv,
   createHmac,
   hkdfSync,
   timingSafeEqual,
 } from "node:crypto";
-import {
-  ProvisionEnvelope,
-  ProvisionMessage,
-  type IProvisionEnvelope,
-  type IProvisionMessage,
-} from "./protos.ts";
+
+import { PrivateKey, PublicKey } from "@signalapp/libsignal-client";
+
+import { ProvisionEnvelope, ProvisionMessage } from "./protos.ts";
 
 export type KeyPair = {
   privateKey: PrivateKey;

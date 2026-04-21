@@ -1,5 +1,7 @@
-import { PrivateKey, PublicKey } from "@signalapp/libsignal-client";
 import { createCipheriv, createHmac } from "node:crypto";
+
+import { PrivateKey, PublicKey } from "@signalapp/libsignal-client";
+
 import { DeviceName } from "./protos.ts";
 
 function hmac(key: Uint8Array, data: Uint8Array): Buffer {

@@ -1,6 +1,7 @@
-import { PrivateKey } from "@signalapp/libsignal-client";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+
+import { PrivateKey } from "@signalapp/libsignal-client";
 
 // Persisted state for the "resume" path in link.ts. Only the fields needed to
 // reopen an authenticated chat connection live here — per-identity prekeys

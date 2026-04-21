@@ -1,6 +1,9 @@
-import { KEMKeyPair, Net, PrivateKey } from "@signalapp/libsignal-client";
-import { randomBytes } from "node:crypto";
 import type { KeyPair } from "./provisioningCipher.ts";
+
+import { randomBytes } from "node:crypto";
+
+import { KEMKeyPair, Net, PrivateKey } from "@signalapp/libsignal-client";
+
 import { wrappingAdd24Nonzero } from "./state.ts";
 
 export type SignedPreKeyJson = {

@@ -1,3 +1,7 @@
+import type { ProtocolStores } from "./stores.ts";
+
+import { randomBytes } from "node:crypto";
+
 import {
   CiphertextMessageType,
   KEMPublicKey,
@@ -8,10 +12,8 @@ import {
   PublicKey,
   signalEncrypt,
 } from "@signalapp/libsignal-client";
-import { randomBytes } from "node:crypto";
 
 import { Content, SyncMessage, SyncRequestType } from "./protos.ts";
-import type { ProtocolStores } from "./stores.ts";
 
 // ---------- Prekey bundle fetch ----------
 

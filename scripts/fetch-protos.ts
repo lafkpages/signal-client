@@ -1,16 +1,20 @@
 #!/usr/bin/env bun
 
-// Downloads the Signal protobuf schemas this project depends on and
-// generates TypeScript declarations for them via pbjs + pbts.
-//
-// Protos are not checked in — run `bun run scripts/fetch-protos.ts` (or
-// `bun run fetch-protos`) after cloning. Each source pins a commit SHA for
-// reproducible builds; bump the SHAs manually when you want to track
-// upstream changes.
+/**
+ * Downloads the Signal protobuf schemas this project depends on and
+ * generates TypeScript declarations for them via pbjs + pbts.
+ *
+ * Protos are not checked in — run `bun run scripts/fetch-protos.ts` (or
+ * `bun run fetch-protos`) after cloning. Each source pins a commit SHA for
+ * reproducible builds; bump the SHAs manually when you want to track
+ * upstream changes.
+ */
+"";
 
-import { $, CryptoHasher, file } from "bun";
 import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
+
+import { $, CryptoHasher, file } from "bun";
 
 // See https://u.luisafk.dev/kFAde
 $.throws(true).env({
