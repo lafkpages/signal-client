@@ -72,6 +72,18 @@ export type SignalClientEvents = {
   }) => void;
   /** Decryption failed; outerType is the envelope type if parseable. */
   decryptError: (err: unknown, outerType: number | null) => void;
+  /**
+   * Peer sent a `DecryptionErrorMessage` in a PLAINTEXT_CONTENT envelope,
+   * signaling that our end of the ratchet is broken and they want us to
+   * reset the session. The bytes are the raw serialized
+   * `DecryptionErrorMessage`. Unauthenticated — treat only as a hint.
+   */
+  peerDecryptionError: (info: {
+    senderServiceId: string;
+    senderDeviceId: number;
+    timestamp: number;
+    decryptionErrorMessage: Uint8Array;
+  }) => void;
   /** Server reports the queue of pending messages is drained. */
   queueEmpty: () => void;
   /** Authenticated chat connection was interrupted. */
@@ -185,6 +197,7 @@ export class SignalClient {
     message: new Set(),
     serverReceipt: new Set(),
     decryptError: new Set(),
+    peerDecryptionError: new Set(),
     queueEmpty: new Set(),
     interrupted: new Set(),
     alerts: new Set(),
@@ -583,6 +596,17 @@ export class SignalClient {
         this.aci,
         this.deviceId,
       );
+      if (result.decryptionErrorMessage) {
+        // PLAINTEXT_CONTENT: unauthenticated ratchet-reset hint. Must NOT
+        // be surfaced through the regular `message` path.
+        this.emit("peerDecryptionError", {
+          senderServiceId: result.envelope.sourceServiceId ?? "",
+          senderDeviceId: result.envelope.sourceDeviceId ?? 0,
+          timestamp: result.envelope.timestamp,
+          decryptionErrorMessage: result.decryptionErrorMessage,
+        });
+        return;
+      }
       if (!result.plaintext) {
         // Server delivery receipts have no plaintext.
         this.emit("serverReceipt", {
