@@ -1,6 +1,6 @@
 # @luisafk/signal-client
 
-An unofficial Signal client library built on top of [`@signalapp/libsignal-client`](https://github.com/nicegram/nicegram-libsignal-client), using [Bun](https://bun.sh). Links as a secondary device (like Signal Desktop) via QR code provisioning, handles the Signal protocol (key exchange, sealed sender, etc.), and emits decrypted messages as events.
+An unofficial Signal client library built on top of [`@signalapp/libsignal-client`](https://github.com/signalapp/libsignal), using [Bun](https://bun.sh). Links as a secondary device (like Signal Desktop) via QR code provisioning, handles the Signal protocol (key exchange, sealed sender, etc.), and emits decrypted messages as events.
 
 > **Note:** This is an experimental project — not affiliated with or endorsed by Signal.
 
