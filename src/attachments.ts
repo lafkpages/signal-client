@@ -18,6 +18,8 @@
 // zero-pads the plaintext to a bucket size, so the caller should truncate to
 // `pointer.size` bytes.
 
+import type Long from "long";
+
 import {
   createDecipheriv,
   createHash,
@@ -30,17 +32,17 @@ import { SIGNAL_CA_PEM } from "./config";
 // Structural superset of generated `signalservice.IAttachmentPointer` — accepts
 // the same nullable fields plus a few extra shapes for cdnId (Long, bigint,
 // string) that pop up depending on how the proto was decoded.
-export type AttachmentPointerLike = {
-  cdnId?: string | number | bigint | { toString(): string } | null;
+export interface AttachmentPointerLike {
+  cdnId?: string | number | bigint | Long | null;
   cdnKey?: string | null;
   cdnNumber?: number | null;
   key?: Uint8Array | null;
   digest?: Uint8Array | null;
   size?: number | null;
   contentType?: string | null;
-};
+}
 
-function cdnBaseUrl(cdnNumber: number | null | undefined): string {
+function cdnBaseUrl(cdnNumber: number | null | undefined) {
   switch (cdnNumber ?? 0) {
     case 0:
       return "https://cdn.signal.org";
@@ -53,7 +55,7 @@ function cdnBaseUrl(cdnNumber: number | null | undefined): string {
   }
 }
 
-function pointerPath(ptr: AttachmentPointerLike): string {
+function pointerPath(ptr: AttachmentPointerLike) {
   if (ptr.cdnKey && ptr.cdnKey.length > 0) {
     return `/attachments/${ptr.cdnKey}`;
   }
@@ -67,7 +69,7 @@ function pointerPath(ptr: AttachmentPointerLike): string {
 export async function downloadAttachment(
   ptr: AttachmentPointerLike,
   userAgent: string,
-): Promise<Uint8Array> {
+) {
   const url = cdnBaseUrl(ptr.cdnNumber) + pointerPath(ptr);
   const res = await fetch(url, {
     method: "GET",
@@ -90,7 +92,7 @@ export async function downloadAttachment(
 export function decryptAttachment(
   blob: Uint8Array,
   ptr: AttachmentPointerLike,
-): Uint8Array {
+) {
   if (!ptr.key || ptr.key.length !== 64) {
     throw new Error("AttachmentPointer.key must be 64 bytes");
   }
@@ -131,7 +133,7 @@ export function decryptAttachment(
 export async function fetchAndDecryptAttachment(
   ptr: AttachmentPointerLike,
   userAgent: string,
-): Promise<Uint8Array> {
+) {
   const blob = await downloadAttachment(ptr, userAgent);
   const padded = decryptAttachment(blob, ptr);
 

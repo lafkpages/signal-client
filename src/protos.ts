@@ -13,6 +13,7 @@ export const ProvisionMessage = signalservice.ProvisionMessage;
 export const DeviceName = signalservice.DeviceName;
 export const Content = signalservice.Content;
 export const SyncMessage = signalservice.SyncMessage;
+export const DataMessage = signalservice.DataMessage;
 export const Envelope = signalservice.Envelope;
 export const AttachmentPointer = signalservice.AttachmentPointer;
 export const ContactDetails = signalservice.ContactDetails;
@@ -20,6 +21,7 @@ export const ContactDetails = signalservice.ContactDetails;
 // ---- Interface types ----
 export type IContent = signalservice.IContent;
 export type ISyncMessage = signalservice.ISyncMessage;
+export type IDataMessage = signalservice.IDataMessage;
 export type IEnvelope = signalservice.IEnvelope;
 export type IAttachmentPointer = signalservice.IAttachmentPointer;
 export type IContactDetails = signalservice.IContactDetails;

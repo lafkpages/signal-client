@@ -4,13 +4,13 @@ import { PrivateKey, PublicKey } from "@signalapp/libsignal-client";
 
 import { DeviceName } from "./protos.ts";
 
-function hmac(key: Uint8Array, data: Uint8Array): Buffer {
+function hmac(key: Uint8Array, data: Uint8Array) {
   return createHmac("sha256", Buffer.from(key))
     .update(Buffer.from(data))
     .digest();
 }
 
-function aesCtrZero(key: Uint8Array, plaintext: Uint8Array): Buffer {
+function aesCtrZero(key: Uint8Array, plaintext: Uint8Array) {
   const iv = Buffer.alloc(16); // zero counter, matches Signal-Desktop
   const c = createCipheriv("aes-256-ctr", Buffer.from(key), iv);
   return Buffer.concat([c.update(Buffer.from(plaintext)), c.final()]);
@@ -23,7 +23,7 @@ function aesCtrZero(key: Uint8Array, plaintext: Uint8Array): Buffer {
 export function encryptDeviceName(
   deviceName: string,
   identityPublic: PublicKey,
-): string {
+) {
   const plaintext = Buffer.from(deviceName, "utf8");
 
   const ephemeralPriv = PrivateKey.generate();
@@ -43,5 +43,6 @@ export function encryptDeviceName(
     syntheticIv,
     ciphertext,
   });
+
   return Buffer.from(DeviceName.encode(msg).finish()).toString("base64");
 }

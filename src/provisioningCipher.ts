@@ -11,12 +11,12 @@ import { PrivateKey, PublicKey } from "@signalapp/libsignal-client";
 
 import { ProvisionEnvelope, ProvisionMessage } from "./protos.ts";
 
-export type KeyPair = {
+export interface KeyPair {
   privateKey: PrivateKey;
   publicKey: PublicKey;
-};
+}
 
-export type ProvisionDecryptResult = {
+export interface ProvisionDecryptResult {
   aciKeyPair: KeyPair;
   pniKeyPair?: KeyPair | undefined;
   number?: string | undefined;
@@ -30,14 +30,11 @@ export type ProvisionDecryptResult = {
   accountEntropyPool?: string | undefined;
   mediaRootBackupKey?: Uint8Array | undefined;
   ephemeralBackupKey?: Uint8Array | undefined;
-};
+}
 
 // HKDF-SHA256 with zero salt and the Signal provisioning info string, producing
 // 64 bytes: cipherKey (32) || macKey (32).
-function deriveProvisioningKeys(sharedSecret: Uint8Array): {
-  cipherKey: Buffer;
-  macKey: Buffer;
-} {
+function deriveProvisioningKeys(sharedSecret: Uint8Array) {
   const out = hkdfSync(
     "sha256",
     sharedSecret,
@@ -45,35 +42,37 @@ function deriveProvisioningKeys(sharedSecret: Uint8Array): {
     Buffer.from("TextSecure Provisioning Message", "utf8"),
     64,
   );
+
   const buf = Buffer.from(out);
+
   return {
     cipherKey: buf.subarray(0, 32),
     macKey: buf.subarray(32, 64),
   };
 }
 
-function verifyHmac(
-  data: Uint8Array,
-  macKey: Buffer,
-  expectedMac: Uint8Array,
-): void {
+function verifyHmac(data: Uint8Array, macKey: Buffer, expectedMac: Uint8Array) {
   const computed = createHmac("sha256", macKey).update(data).digest();
+
   if (expectedMac.byteLength !== computed.length) {
     throw new Error("Bad MAC length");
   }
+
   if (!timingSafeEqual(computed, Buffer.from(expectedMac))) {
     throw new Error("Bad MAC on ProvisioningMessage");
   }
 }
 
-function aes256CbcDecrypt(key: Buffer, iv: Uint8Array, ct: Uint8Array): Buffer {
+function aes256CbcDecrypt(key: Buffer, iv: Uint8Array, ct: Uint8Array) {
   const d = createDecipheriv("aes-256-cbc", key, Buffer.from(iv));
   return Buffer.concat([d.update(Buffer.from(ct)), d.final()]);
 }
 
-function uuidBytesToString(b: Uint8Array): string {
+function uuidBytesToString(b: Uint8Array) {
   if (b.length !== 16) throw new Error("Bad UUID byte length");
+
   const h = Buffer.from(b).toString("hex");
+
   return (
     `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-` +
     `${h.slice(16, 20)}-${h.slice(20, 32)}`
@@ -81,8 +80,8 @@ function uuidBytesToString(b: Uint8Array): string {
 }
 
 export class ProvisioningCipher {
-  public readonly privateKey: PrivateKey;
-  public readonly publicKey: PublicKey;
+  public readonly privateKey;
+  public readonly publicKey;
 
   constructor() {
     this.privateKey = PrivateKey.generate();

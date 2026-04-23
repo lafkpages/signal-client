@@ -17,18 +17,18 @@ import { decryptBlob, encryptBlob } from "./crypto.ts";
  * store or previously uploaded to the server. See
  * `getNextKeyId` / `wrappingAdd24` in Signal-Desktop's `AccountManager`.
  */
-export type KeyIdCounters = {
+export interface KeyIdCounters {
   preKeyIdAci: number;
   preKeyIdPni: number;
   signedPreKeyIdAci: number;
   signedPreKeyIdPni: number;
   kyberPreKeyIdAci: number;
   kyberPreKeyIdPni: number;
-};
+}
 
 export type KeyIdKind = keyof KeyIdCounters;
 
-export type LinkedState = {
+export interface LinkedState {
   aci: string;
   pni: string; // tagged "PNI:<uuid>"
   number: string;
@@ -52,13 +52,9 @@ export type LinkedState = {
 
   /** Next-key-id counters; see {@link KeyIdCounters}. */
   keyIds: KeyIdCounters;
-};
+}
 
-export function saveState(
-  path: string,
-  state: LinkedState,
-  key: Uint8Array,
-): void {
+export function saveState(path: string, state: LinkedState, key: Uint8Array) {
   const plaintext = Buffer.from(JSON.stringify(state, null, 2), "utf8");
   const envelope = encryptBlob(plaintext, key);
   const tmp = path + ".tmp";
@@ -73,21 +69,20 @@ export function saveState(
  * will be missing; callers are expected to initialize it (see `SignalClient`'s
  * `init` method) and persist again.
  */
-export function loadState(
-  path: string,
-  key: Uint8Array,
-): LinkedState | undefined {
+export function loadState(path: string, key: Uint8Array) {
   if (!existsSync(path)) return undefined;
+
   const raw = readFileSync(path);
   const decrypted = decryptBlob(new Uint8Array(raw), key);
+
   return JSON.parse(Buffer.from(decrypted).toString("utf8")) as LinkedState;
 }
 
-export function b64(bytes: Uint8Array): string {
+export function b64(bytes: Uint8Array) {
   return Buffer.from(bytes).toString("base64");
 }
 
-export function b64d(s: string): Uint8Array<ArrayBuffer> {
+export function b64d(s: string) {
   // Copy into a fresh ArrayBuffer-backed Uint8Array so callers that require
   // `Uint8Array<ArrayBuffer>` (libsignal native bindings) type-check cleanly.
   const buf = Buffer.from(s, "base64");
@@ -96,7 +91,7 @@ export function b64d(s: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
-export function loadPrivateKey(s: string): PrivateKey {
+export function loadPrivateKey(s: string) {
   return PrivateKey.deserialize(b64d(s));
 }
 
@@ -105,17 +100,17 @@ export function loadPrivateKey(s: string): PrivateKey {
 const KEY_ID_MASK = 0xffffff; // 24 bits
 
 /** Wraps addition into 24 bits, matching Signal-Desktop's `wrappingAdd24`. */
-export function wrappingAdd24(id: number, delta: number): number {
+export function wrappingAdd24(id: number, delta: number) {
   return (id + delta) & KEY_ID_MASK;
 }
 
 /** Same as {@link wrappingAdd24} but never returns 0 (treated as "unset"). */
-export function wrappingAdd24Nonzero(id: number, delta: number): number {
+export function wrappingAdd24Nonzero(id: number, delta: number) {
   return Math.max(1, wrappingAdd24(id, delta));
 }
 
 /** Picks a non-zero 24-bit id, used only to seed an empty counter. */
-export function randomInitialKeyId(): number {
+export function randomInitialKeyId() {
   let id = 0;
   while (id === 0) {
     id = randomBytes(3).readUIntBE(0, 3);
@@ -132,7 +127,7 @@ export function allocateKeyIds(
   counters: KeyIdCounters,
   kind: KeyIdKind,
   count: number,
-): number {
+) {
   if (count < 1) throw new Error("allocateKeyIds: count must be >= 1");
   const start = counters[kind];
   counters[kind] = wrappingAdd24Nonzero(start, count);
@@ -140,9 +135,6 @@ export function allocateKeyIds(
 }
 
 /** Allocates a single id; convenience wrapper around {@link allocateKeyIds}. */
-export function allocateKeyId(
-  counters: KeyIdCounters,
-  kind: KeyIdKind,
-): number {
+export function allocateKeyId(counters: KeyIdCounters, kind: KeyIdKind) {
   return allocateKeyIds(counters, kind, 1);
 }

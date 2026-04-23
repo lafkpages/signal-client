@@ -17,31 +17,31 @@ import { Content, SyncMessage, SyncRequestType } from "./protos.ts";
 
 // ---------- Prekey bundle fetch ----------
 
-export type ServerPreKey = {
+export interface ServerPreKey {
   keyId: number;
   publicKey: string; // base64
-};
+}
 
-export type ServerSignedPreKey = {
+export interface ServerSignedPreKey {
   keyId: number;
   publicKey: string;
   signature: string;
-};
+}
 
-export type ServerDevice = {
+export interface ServerDevice {
   deviceId: number;
   registrationId: number;
   preKey?: ServerPreKey;
   signedPreKey: ServerSignedPreKey;
   pqPreKey?: ServerSignedPreKey;
-};
+}
 
-export type ServerKeys = {
+export interface ServerKeys {
   identityKey: string; // base64
   devices: ServerDevice[];
-};
+}
 
-function b64d(s: string): Uint8Array<ArrayBuffer> {
+function b64d(s: string) {
   const buf = Buffer.from(s, "base64");
   const out = new Uint8Array(buf.byteLength);
   out.set(buf);
@@ -55,19 +55,22 @@ export async function getKeysForServiceId(
   chat: Net.AuthenticatedChatConnection,
   serviceId: string,
   userAgent: string,
-): Promise<ServerKeys> {
+) {
   const req: Net.ChatRequest = {
     verb: "GET",
     path: `/v2/keys/${serviceId}/*`,
     headers: [["user-agent", userAgent]],
   };
+
   const res = await chat.fetch(req);
+
   if (res.status < 200 || res.status >= 300) {
     const text = res.body ? Buffer.from(res.body).toString("utf8") : "";
     throw new Error(
       `GET /v2/keys/${serviceId}/* failed: ${res.status} ${text}`,
     );
   }
+
   const text = res.body ? Buffer.from(res.body).toString("utf8") : "";
   return JSON.parse(text) as ServerKeys;
 }
@@ -83,12 +86,13 @@ export async function installSessionFromDevice(
   address: ProtocolAddress,
   identityKeyB64: string,
   device: ServerDevice,
-): Promise<void> {
+) {
   if (!device.pqPreKey) {
     throw new Error(
       `Device ${address.deviceId()} has no pqPreKey — server policy change?`,
     );
   }
+
   const identityKey = PublicKey.deserialize(b64d(identityKeyB64));
   const signedPreKey = PublicKey.deserialize(
     b64d(device.signedPreKey.publicKey),
@@ -118,20 +122,39 @@ export async function installSessionFromDevice(
 
 // ---------- Content building ----------
 
-function randomPadding(): Uint8Array {
+export function randomPadding() {
   // Matches Signal-Desktop's getRandomPadding: 1..512 random bytes.
   const lenBuf = randomBytes(2);
   const len = (lenBuf.readUInt16LE(0) & 0x1ff) + 1;
   return randomBytes(len);
 }
 
-function buildSyncRequestContent(type: number): Uint8Array<ArrayBuffer> {
+const PADDING_BLOCK = 80;
+
+/**
+ * Pads `message` with a `0x80` terminator followed by zero bytes so that the
+ * resulting length is a multiple of 80 (minus one for the terminator). Matches
+ * Signal-Desktop's `padMessage`. The peer's decrypt step strips it by
+ * scanning from the end for `0x80`.
+ */
+export function padMessage(message: Uint8Array) {
+  const withTerminator = message.byteLength + 1;
+  const blocks = Math.ceil(withTerminator / PADDING_BLOCK);
+  const padded = new Uint8Array(blocks * PADDING_BLOCK - 1);
+  padded.set(message);
+  padded[message.byteLength] = 0x80;
+  return padded;
+}
+
+function buildSyncRequestContent(type: number) {
   const syncMessage = SyncMessage.create({
     request: { type },
     padding: randomPadding(),
   });
+
   const content = Content.create({ syncMessage });
   const out = Content.encode(content).finish();
+
   // protobufjs returns Uint8Array<ArrayBufferLike>; copy into ArrayBuffer-backed.
   const copy = new Uint8Array(out.byteLength);
   copy.set(out);
@@ -145,7 +168,7 @@ function buildSyncRequestContent(type: number): Uint8Array<ArrayBuffer> {
 const SERVER_TYPE_CIPHERTEXT = 1; // libsignal Whisper
 const SERVER_TYPE_PREKEY_BUNDLE = 3; // libsignal PreKey
 
-function ciphertextTypeToServer(t: CiphertextMessageType): number {
+function ciphertextTypeToServer(t: CiphertextMessageType) {
   switch (t) {
     case CiphertextMessageType.Whisper:
       return SERVER_TYPE_CIPHERTEXT;
@@ -156,28 +179,31 @@ function ciphertextTypeToServer(t: CiphertextMessageType): number {
   }
 }
 
-export type OutgoingMessage = {
+export interface OutgoingMessage {
   type: number;
   destinationDeviceId: number;
   destinationRegistrationId: number;
   content: string; // base64
-};
+}
 
 export async function encryptContentForDevice(
   stores: ProtocolStores,
   remote: ProtocolAddress,
   localAddress: ProtocolAddress,
-  plaintext: Uint8Array<ArrayBuffer>,
+  plaintext: Uint8Array,
 ): Promise<OutgoingMessage> {
+  const padded = padMessage(plaintext);
   const ciphertext = await signalEncrypt(
-    plaintext,
+    padded,
     remote,
     localAddress,
     stores.session,
     stores.identity,
   );
+
   const session = await stores.session.getSession(remote);
   if (!session) throw new Error("Session disappeared after encrypt");
+
   // Remote registration ID must match the bundle we used to build the session.
   const destinationRegistrationId = session.remoteRegistrationId();
 
@@ -191,12 +217,34 @@ export async function encryptContentForDevice(
 
 // ---------- PUT /v1/messages/<dest> ----------
 
-export type SendMessagesOptions = {
+export interface SendMessagesOptions {
   timestamp: number;
   online?: boolean;
   urgent?: boolean;
   story?: boolean;
-};
+}
+
+/**
+ * Thrown when the server reports the recipient's device list does not match
+ * what we sent to. Callers (see `send.ts`) recover by removing extra sessions
+ * / archiving stale sessions / refetching key bundles, then retrying.
+ *
+ * - 409 "mismatched devices": we sent to too many (`extraDevices`) or missed
+ *   some (`missingDevices`).
+ * - 410 "stale devices": some sessions are out of date and must be
+ *   re-established (`staleDevices`).
+ */
+export class DeviceMismatchError extends Error {
+  constructor(
+    readonly status: 409 | 410,
+    readonly extraDevices: number[],
+    readonly missingDevices: number[],
+    readonly staleDevices: number[],
+  ) {
+    super(`Device mismatch (${status})`);
+    this.name = "DeviceMismatchError";
+  }
+}
 
 export async function sendMessages(
   chat: Net.AuthenticatedChatConnection,
@@ -204,13 +252,14 @@ export async function sendMessages(
   messages: OutgoingMessage[],
   opts: SendMessagesOptions,
   userAgent: string,
-): Promise<void> {
+) {
   const body = {
     messages,
     timestamp: opts.timestamp,
     online: Boolean(opts.online),
     urgent: opts.urgent ?? true,
   };
+
   const req: Net.ChatRequest = {
     verb: "PUT",
     path: `/v1/messages/${destination}?story=${opts.story ? "true" : "false"}`,
@@ -220,13 +269,33 @@ export async function sendMessages(
     ],
     body: new TextEncoder().encode(JSON.stringify(body)),
   };
+
   const res = await chat.fetch(req);
+
   if (res.status === 409 || res.status === 410) {
-    // 409 = mismatched devices (must add/remove a session)
-    // 410 = stale devices (must clear sessions and retry)
     const text = res.body ? Buffer.from(res.body).toString("utf8") : "";
-    throw new Error(`Device mismatch (${res.status}): ${text}`);
+
+    let extra: number[] = [];
+    let missing: number[] = [];
+    let stale: number[] = [];
+
+    try {
+      const parsed = JSON.parse(text) as {
+        extraDevices?: number[];
+        missingDevices?: number[];
+        staleDevices?: number[];
+      };
+
+      extra = parsed.extraDevices ?? [];
+      missing = parsed.missingDevices ?? [];
+      stale = parsed.staleDevices ?? [];
+    } catch {
+      /* leave arrays empty */
+    }
+
+    throw new DeviceMismatchError(res.status, extra, missing, stale);
   }
+
   if (res.status < 200 || res.status >= 300) {
     const text = res.body ? Buffer.from(res.body).toString("utf8") : "";
     throw new Error(
@@ -249,7 +318,7 @@ export async function sendSyncRequests(
   selfAci: string,
   selfDeviceId: number,
   userAgent: string,
-): Promise<void> {
+) {
   const localAddress = ProtocolAddress.new(selfAci, selfDeviceId);
   const keys = await getKeysForServiceId(chat, selfAci, userAgent);
 

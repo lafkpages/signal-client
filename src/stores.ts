@@ -49,11 +49,13 @@ class PersistedBytesMap {
     private readonly path?: string,
   ) {
     if (!path || !existsSync(path)) return;
+
     try {
       const raw = readFileSync(path);
       const decrypted = decryptBlob(new Uint8Array(raw), key);
       const json = Buffer.from(decrypted).toString("utf8");
       const obj = JSON.parse(json) as Record<string, string>;
+
       for (const [k, v] of Object.entries(obj)) {
         this.data.set(k, Buffer.from(v, "base64"));
       }
@@ -62,22 +64,22 @@ class PersistedBytesMap {
     }
   }
 
-  get(k: string): Uint8Array | undefined {
+  get(k: string) {
     return this.data.get(k);
   }
 
-  set(k: string, v: Uint8Array): void {
+  set(k: string, v: Uint8Array) {
     this.data.set(k, v);
     this.flush();
   }
 
-  delete(k: string): void {
+  delete(k: string) {
     this.data.delete(k);
     this.flush();
   }
 
   /** Returns the largest numeric-looking key, or 0 if none. */
-  maxNumericKey(): number {
+  maxNumericKey() {
     let max = 0;
     for (const k of this.data.keys()) {
       const n = Number(k);
@@ -86,8 +88,13 @@ class PersistedBytesMap {
     return max;
   }
 
-  private flush(): void {
+  keys() {
+    return this.data.keys();
+  }
+
+  private flush() {
     if (!this.path) return;
+
     const obj: Record<string, string> = {};
     for (const [k, v] of this.data) {
       obj[k] = Buffer.from(v).toString("base64");
@@ -111,26 +118,71 @@ export class InMemorySessionStore extends SessionStore {
     this.sessions = new PersistedBytesMap(key, path);
   }
 
-  async saveSession(
-    name: ProtocolAddress,
-    record: SessionRecord,
-  ): Promise<void> {
+  async saveSession(name: ProtocolAddress, record: SessionRecord) {
     this.sessions.set(key(name), record.serialize());
   }
 
-  async getSession(name: ProtocolAddress): Promise<SessionRecord | null> {
+  async getSession(name: ProtocolAddress) {
     const raw = this.sessions.get(key(name));
     return raw ? SessionRecord.deserialize(Buffer.from(raw)) : null;
   }
 
-  async getExistingSessions(
-    addresses: ProtocolAddress[],
-  ): Promise<SessionRecord[]> {
+  async getExistingSessions(addresses: ProtocolAddress[]) {
     const out: SessionRecord[] = [];
     for (const a of addresses) {
       const r = await this.getSession(a);
       if (!r) throw new Error(`No session for ${key(a)}`);
       out.push(r);
+    }
+    return out;
+  }
+
+  /**
+   * Archives the current sender chain on the session at `address`, so the
+   * next outbound message will force a fresh key agreement (PreKey message).
+   * Matches Signal-Desktop's `archiveSession`, used on 410 stale-device
+   * responses from `PUT /v1/messages`.
+   */
+  async archiveSession(address: ProtocolAddress) {
+    const record = await this.getSession(address);
+    if (!record) return;
+    record.archiveCurrentState();
+    this.sessions.set(key(address), record.serialize());
+  }
+
+  /** Removes a session entirely — used on 409 extra-device responses. */
+  deleteSession(address: ProtocolAddress) {
+    this.sessions.delete(key(address));
+  }
+
+  /** Archives every session whose address name matches `serviceId`. */
+  async archiveAllSessions(serviceId: string) {
+    const prefix = `${serviceId}.`;
+    const matching: string[] = [];
+    for (const k of this.sessions.keys()) {
+      if (k.startsWith(prefix)) matching.push(k);
+    }
+    for (const k of matching) {
+      const raw = this.sessions.get(k);
+      if (!raw) continue;
+      const record = SessionRecord.deserialize(Buffer.from(raw));
+      record.archiveCurrentState();
+      this.sessions.set(k, record.serialize());
+    }
+  }
+
+  /**
+   * Returns every deviceId for which we have a session under `serviceId`.
+   * Used to avoid a `GET /v2/keys/<serviceId>/*` round-trip when we already
+   * know the peer's active device list.
+   */
+  listDeviceIds(serviceId: string) {
+    const prefix = `${serviceId}.`;
+    const out: number[] = [];
+    for (const k of this.sessions.keys()) {
+      if (!k.startsWith(prefix)) continue;
+      const id = Number(k.slice(prefix.length));
+      if (Number.isInteger(id)) out.push(id);
     }
     return out;
   }
@@ -149,18 +201,15 @@ export class InMemoryIdentityKeyStore extends IdentityKeyStore {
     this.identities = new PersistedBytesMap(key, path);
   }
 
-  async getIdentityKey(): Promise<PrivateKey> {
+  async getIdentityKey() {
     return this.identityKeyPrivate;
   }
 
-  async getLocalRegistrationId(): Promise<number> {
+  async getLocalRegistrationId() {
     return this.registrationId;
   }
 
-  async saveIdentity(
-    name: ProtocolAddress,
-    keyPub: PublicKey,
-  ): Promise<IdentityChange> {
+  async saveIdentity(name: ProtocolAddress, keyPub: PublicKey) {
     const k = key(name);
     const existing = this.identities.get(k);
     const serialized = keyPub.serialize();
@@ -178,7 +227,7 @@ export class InMemoryIdentityKeyStore extends IdentityKeyStore {
     _name: ProtocolAddress,
     _keyPub: PublicKey,
     _direction: Direction,
-  ): Promise<boolean> {
+  ) {
     // Trust on first use. A real client should prompt the user on changes.
     return true;
   }
@@ -197,26 +246,28 @@ export class InMemoryPreKeyStore extends PreKeyStore {
     this.keys = new PersistedBytesMap(key, path);
   }
 
-  async savePreKey(id: number, record: PreKeyRecord): Promise<void> {
+  async savePreKey(id: number, record: PreKeyRecord) {
     this.keys.set(String(id), record.serialize());
   }
 
-  async getPreKey(id: number): Promise<PreKeyRecord> {
+  async getPreKey(id: number) {
     const raw = this.keys.get(String(id));
+
     if (!raw) throw new Error(`No prekey ${id}`);
+
     return PreKeyRecord.deserialize(Buffer.from(raw));
   }
 
-  async removePreKey(id: number): Promise<void> {
+  async removePreKey(id: number) {
     this.keys.delete(String(id));
   }
 
-  add(id: number, priv: PrivateKey): void {
+  add(id: number, priv: PrivateKey) {
     const record = PreKeyRecord.new(id, priv.getPublicKey(), priv);
     this.keys.set(String(id), record.serialize());
   }
 
-  maxKeyId(): number {
+  maxKeyId() {
     return this.keys.maxNumericKey();
   }
 }
@@ -229,25 +280,17 @@ export class InMemorySignedPreKeyStore extends SignedPreKeyStore {
     this.keys = new PersistedBytesMap(key, path);
   }
 
-  async saveSignedPreKey(
-    id: number,
-    record: SignedPreKeyRecord,
-  ): Promise<void> {
+  async saveSignedPreKey(id: number, record: SignedPreKeyRecord) {
     this.keys.set(String(id), record.serialize());
   }
 
-  async getSignedPreKey(id: number): Promise<SignedPreKeyRecord> {
+  async getSignedPreKey(id: number) {
     const raw = this.keys.get(String(id));
     if (!raw) throw new Error(`No signed prekey ${id}`);
     return SignedPreKeyRecord.deserialize(Buffer.from(raw));
   }
 
-  add(
-    id: number,
-    timestamp: number,
-    priv: PrivateKey,
-    signature: Uint8Array,
-  ): void {
+  add(id: number, timestamp: number, priv: PrivateKey, signature: Uint8Array) {
     const record = SignedPreKeyRecord.new(
       id,
       timestamp,
@@ -258,7 +301,7 @@ export class InMemorySignedPreKeyStore extends SignedPreKeyStore {
     this.keys.set(String(id), record.serialize());
   }
 
-  maxKeyId(): number {
+  maxKeyId() {
     return this.keys.maxNumericKey();
   }
 }
@@ -273,11 +316,11 @@ export class InMemoryKyberPreKeyStore extends KyberPreKeyStore {
     this.keys = new PersistedBytesMap(key, path);
   }
 
-  async saveKyberPreKey(id: number, record: KyberPreKeyRecord): Promise<void> {
+  async saveKyberPreKey(id: number, record: KyberPreKeyRecord) {
     this.keys.set(String(id), record.serialize());
   }
 
-  async getKyberPreKey(id: number): Promise<KyberPreKeyRecord> {
+  async getKyberPreKey(id: number) {
     const raw = this.keys.get(String(id));
     if (!raw) throw new Error(`No kyber prekey ${id}`);
     return KyberPreKeyRecord.deserialize(Buffer.from(raw));
@@ -287,7 +330,7 @@ export class InMemoryKyberPreKeyStore extends KyberPreKeyStore {
     id: number,
     _signedPreKeyId: number,
     _baseKey: PublicKey,
-  ): Promise<void> {
+  ) {
     this.used.add(id);
   }
 
@@ -296,7 +339,7 @@ export class InMemoryKyberPreKeyStore extends KyberPreKeyStore {
     timestamp: number,
     keyPair: KEMKeyPair,
     signature: Uint8Array,
-  ): void {
+  ) {
     const record = KyberPreKeyRecord.new(
       id,
       timestamp,
@@ -306,7 +349,7 @@ export class InMemoryKyberPreKeyStore extends KyberPreKeyStore {
     this.keys.set(String(id), record.serialize());
   }
 
-  maxKeyId(): number {
+  maxKeyId() {
     return this.keys.maxNumericKey();
   }
 }
@@ -321,7 +364,7 @@ export class InMemorySenderKeyStore extends SenderKeyStore {
 
   // Key format: `${sender.name()}.${sender.deviceId()}|${distributionId}`
   // distributionId is already a UUID string from libsignal.
-  private k(sender: ProtocolAddress, distributionId: Uuid): string {
+  private k(sender: ProtocolAddress, distributionId: Uuid) {
     return `${key(sender)}|${distributionId}`;
   }
 
@@ -329,36 +372,26 @@ export class InMemorySenderKeyStore extends SenderKeyStore {
     sender: ProtocolAddress,
     distributionId: Uuid,
     record: SenderKeyRecord,
-  ): Promise<void> {
+  ) {
     this.keys.set(this.k(sender, distributionId), record.serialize());
   }
 
-  async getSenderKey(
-    sender: ProtocolAddress,
-    distributionId: Uuid,
-  ): Promise<SenderKeyRecord | null> {
+  async getSenderKey(sender: ProtocolAddress, distributionId: Uuid) {
     const raw = this.keys.get(this.k(sender, distributionId));
     return raw ? SenderKeyRecord.deserialize(Buffer.from(raw)) : null;
   }
 }
 
-export type ProtocolStores = {
+export interface ProtocolStores {
   session: InMemorySessionStore;
   identity: InMemoryIdentityKeyStore;
   preKey: InMemoryPreKeyStore;
   signedPreKey: InMemorySignedPreKeyStore;
   kyberPreKey: InMemoryKyberPreKeyStore;
   senderKey: InMemorySenderKeyStore;
-};
+}
 
-function storePaths(dir: string): {
-  sessions: string;
-  identities: string;
-  preKeys: string;
-  signedPreKeys: string;
-  kyberPreKeys: string;
-  senderKeys: string;
-} {
+function storePaths(dir: string) {
   return {
     sessions: join(dir, "sessions.enc"),
     identities: join(dir, "identities.enc"),
@@ -376,6 +409,7 @@ export function createStores(
   persistDir?: string,
 ): ProtocolStores {
   const p = persistDir ? storePaths(persistDir) : undefined;
+
   return {
     session: new InMemorySessionStore(key, p?.sessions),
     identity: new InMemoryIdentityKeyStore(

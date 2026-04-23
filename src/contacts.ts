@@ -47,23 +47,27 @@ function readVarint(buf: Uint8Array, offset: number): [number, number] {
   throw new Error("Varint too long");
 }
 
-export function parseContactDetailsStream(bytes: Uint8Array): ParsedContact[] {
+export function parseContactDetailsStream(bytes: Uint8Array) {
   const out: ParsedContact[] = [];
+
   let pos = 0;
   while (pos < bytes.length) {
     const [len, consumed] = readVarint(bytes, pos);
+
     pos += consumed;
     if (pos + len > bytes.length) {
       throw new Error(
         `ContactDetails length ${len} exceeds remaining ${bytes.length - pos}`,
       );
     }
+
     const slice = bytes.subarray(pos, pos + len);
     pos += len;
 
     const decoded = ContactDetails.decode(slice);
 
     const avatarLen = decoded.avatar?.length ?? 0;
+
     let avatarBytes: Uint8Array | undefined;
     if (avatarLen > 0) {
       if (pos + avatarLen > bytes.length) {
@@ -78,15 +82,12 @@ export function parseContactDetailsStream(bytes: Uint8Array): ParsedContact[] {
     // protobuf.js decodes unset proto2 `optional string` fields as "" rather
     // than leaving them undefined, and unset `bytes` fields as zero-length
     // buffers. Normalise both so callers can rely on `??` falling through.
-    const aci = decoded.aci || null;
-    const aciBinary =
-      decoded.aciBinary && decoded.aciBinary.length > 0
-        ? decoded.aciBinary
-        : null;
-
     out.push({
-      aci,
-      aciBinary,
+      aci: decoded.aci || null,
+      aciBinary:
+        decoded.aciBinary && decoded.aciBinary.length > 0
+          ? decoded.aciBinary
+          : null,
       number: decoded.number || null,
       name: decoded.name || null,
       expireTimer: decoded.expireTimer ?? null,
@@ -100,5 +101,6 @@ export function parseContactDetailsStream(bytes: Uint8Array): ParsedContact[] {
         : null,
     });
   }
+
   return out;
 }

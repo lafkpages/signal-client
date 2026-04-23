@@ -1,6 +1,7 @@
 import type { LinkDeviceRequest } from "./chatApi.ts";
 import type { IContent } from "./protos.ts";
 import type { ProvisionDecryptResult } from "./provisioningCipher.ts";
+import type { DataMessageBuildOptions } from "./send.ts";
 import type { KeyIdCounters, LinkedState } from "./state.ts";
 import type { ProtocolStores } from "./stores.ts";
 
@@ -21,6 +22,12 @@ import { decryptEnvelope, parseEnvelope } from "./decrypt.ts";
 import { encryptDeviceName } from "./deviceName.ts";
 import { Content } from "./protos.ts";
 import { ProvisioningCipher } from "./provisioningCipher.ts";
+import {
+  buildDataMessage,
+  buildDataMessageContent,
+  buildSyncSentTranscriptContent,
+  sendContentToServiceId,
+} from "./send.ts";
 import {
   b64,
   loadPrivateKey,
@@ -621,6 +628,95 @@ export class SignalClient {
       this.deviceId,
       this.config.userAgent,
     );
+  }
+
+  // ---- Sending ----
+
+  /**
+   * Sends a DataMessage to `destinationServiceId` (ACI or PNI) and, unless
+   * disabled, also sends a `SyncMessage.Sent` transcript to our own other
+   * devices so they mirror the send.
+   *
+   * Returns the sent timestamp — callers should surface this as the message
+   * id / delivery-receipt key.
+   */
+  async sendMessage(
+    destinationServiceId: string,
+    opts: Omit<DataMessageBuildOptions, "timestamp"> & {
+      /** Override the sent timestamp. Defaults to `Date.now()`. */
+      timestamp?: number;
+      /** Urgent flag on the outer envelope. Default: true. */
+      urgent?: boolean;
+      /**
+       * Set to false to skip the sync-sent transcript. Default: true.
+       * When true, a transcript is only actually sent if we have at least
+       * one other linked device.
+       */
+      sendSyncTranscriptIfNecessary?: boolean;
+      /** Destination E.164 to stamp on the sync transcript, if any. */
+      destinationE164?: string;
+    } = {},
+  ): Promise<{ timestamp: number }> {
+    const { aci, deviceId } = this.linkedState;
+    const stores = this.protocolStores;
+    const timestamp = opts.timestamp ?? Date.now();
+
+    const dataBuildOpts: DataMessageBuildOptions = {
+      timestamp,
+      ...(opts.body !== undefined && { body: opts.body }),
+      ...(opts.expireTimer !== undefined && { expireTimer: opts.expireTimer }),
+      ...(opts.expireTimerVersion !== undefined && {
+        expireTimerVersion: opts.expireTimerVersion,
+      }),
+      ...(opts.profileKey !== undefined && { profileKey: opts.profileKey }),
+    };
+    const dataMessage = buildDataMessage(dataBuildOpts);
+    const dataContent = buildDataMessageContent(dataBuildOpts);
+
+    await sendContentToServiceId(
+      this.chat,
+      stores,
+      aci,
+      deviceId,
+      destinationServiceId,
+      dataContent,
+      { timestamp, urgent: opts.urgent ?? true },
+      this.config.userAgent,
+    );
+
+    if (opts.sendSyncTranscriptIfNecessary !== false) {
+      const transcript = buildSyncSentTranscriptContent({
+        dataMessage,
+        timestamp,
+        destinationServiceId,
+        ...(opts.destinationE164 !== undefined && {
+          destinationE164: opts.destinationE164,
+        }),
+      });
+
+      try {
+        await sendContentToServiceId(
+          this.chat,
+          stores,
+          aci,
+          deviceId,
+          aci,
+          transcript,
+          {
+            timestamp,
+            urgent: false,
+            // Don't send the transcript to ourselves.
+            skipDeviceIds: [deviceId],
+          },
+          this.config.userAgent,
+        );
+      } catch (e) {
+        // A failed sync transcript shouldn't fail the primary send.
+        console.warn("sendMessage: sync transcript failed:", e);
+      }
+    }
+
+    return { timestamp };
   }
 
   // ---- Internals ----
